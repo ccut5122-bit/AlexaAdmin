@@ -38,7 +38,7 @@ function send($id, $t, $e = []) {
 
 // ====== WEBHOOK SETUP (visit bot.php?setup in browser) ======
 if (isset($_GET['setup'])) {
-  $url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . '/bot.php';
+  $url = 'https://' . $_SERVER['HTTP_HOST'] . '/bot.php';
   $r = tg('setWebhook', ['url' => $url]);
   header('Content-Type: application/json');
   echo json_encode(['status' => $r ? 'ok' : 'error', 'result' => $r, 'webhook_url' => $url]);
