@@ -472,12 +472,10 @@ var SMS_CACHE = [], OTP_CACHE = [], SIMS_CACHE = [];
 var polling = null;
 
 // ====== Device token auth (survives IP change) ======
-function genToken(){ var a=new Uint8Array(32); crypto.getRandomValues(a); return Array.from(a,function(b){return b.toString(36).padStart(2,'0')}).join('') }
 (function(){
   var t = localStorage.getItem('aa_device_token');
-  if(!t) { t = genToken(); localStorage.setItem('aa_device_token', t); }
-  // Register token with server (silently)
-  fetch('panel.php?ajax=register_token', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'token='+encodeURIComponent(t)}).catch(function(){});
+  var pt = <?php echo json_encode($GLOBALS['freshToken'] ?? ''); ?>;
+  if(!t && pt) { localStorage.setItem('aa_device_token', pt); }
 })();
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
