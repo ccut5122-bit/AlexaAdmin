@@ -67,14 +67,24 @@ function botSend($text) {
 // ====== AUTH (token-based + IP whitelist) ======
 $visitorIP = getRealIP();
 $browserToken = $_GET['token'] ?? $_POST['token'] ?? $_COOKIE['aa_token'] ?? '';
-if ($browserToken) setcookie('aa_token', $browserToken, time() + 86400 * 365, '/');
 
 $allowedIPs = fb('panel/allowed_ips');
 if (!is_array($allowedIPs)) $allowedIPs = [];
 $allowedTokens = fb('panel/auth_tokens');
 if (!is_array($allowedTokens)) $allowedTokens = [];
 
-$isAllowed = (in_array($visitorIP, $allowedIPs) || in_array('*', $allowedIPs) || isset($allowedTokens[$browserToken]));
+$isAllowed = (in_array($visitorIP, $allowedIPs) || in_array('*', $allowedIPs) || ($browserToken && isset($allowedTokens[$browserToken])));
+
+// If allowed via IP & no token yet → auto-generate & register one
+if ($isAllowed && !$browserToken) {
+  $newToken = bin2hex(random_bytes(16));
+  $allowedTokens[$newToken] = ['ip' => $visitorIP, 'ua' => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 80), 'time' => date('Y-m-d H:i:s')];
+  fbPut('panel/auth_tokens', $allowedTokens);
+  setcookie('aa_token', $newToken, time() + 86400 * 365, '/');
+  $browserToken = $newToken;
+  $GLOBALS['freshToken'] = $newToken;
+}
+if ($browserToken) setcookie('aa_token', $browserToken, time() + 86400 * 365, '/');
 
 // Log visitor
 $visitors = fb('panel/visitors');
