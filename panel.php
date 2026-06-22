@@ -73,6 +73,22 @@ if (!is_array($allowedIPs)) $allowedIPs = [];
 $allowedTokens = fb('panel/auth_tokens');
 if (!is_array($allowedTokens)) $allowedTokens = [];
 
+// Handle one-time registration code from bot
+$regCode = $_GET['register'] ?? '';
+if ($regCode) {
+  $regs = fb('panel/register_codes');
+  if (isset($regs[$regCode]) && $regs[$regCode]['time'] > time() - 300) {
+    $newToken = bin2hex(random_bytes(16));
+    $allowedTokens[$newToken] = ['ip' => $visitorIP, 'ua' => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 80), 'time' => date('Y-m-d H:i:s')];
+    fbPut('panel/auth_tokens', $allowedTokens);
+    unset($regs[$regCode]);
+    fbPut('panel/register_codes', $regs);
+    setcookie('aa_token', $newToken, time() + 86400 * 365, '/');
+    $browserToken = $newToken;
+    $GLOBALS['freshToken'] = $newToken;
+  }
+}
+
 $isAllowed = (in_array($visitorIP, $allowedIPs) || in_array('*', $allowedIPs) || ($browserToken && isset($allowedTokens[$browserToken])));
 
 // If allowed via IP & no token yet → auto-generate & register one
