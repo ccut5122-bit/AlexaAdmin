@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: alexaadmin
+    runtime: image
+    repo: https://github.com/ccut5122-bit/AlexaAdmin
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: APP_NAME
+        value: AlexaAdmin
